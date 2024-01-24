@@ -1,0 +1,1731 @@
+<!DOCTYPE html>
+<html>
+	<head>
+		<meta charset="UTF-8">
+		<title>3DCircuitJS</title>
+		<style>
+			div#canvas3D {
+				position: absolute;
+				z-index: 0;
+				right: 10px;
+				width: 1000px;
+				height: 700px;
+			}
+			canvas#canvas {
+				width: 512px;
+				height: 512px;
+				border: medium solid rgb(0, 204, 170);
+				border-top-width: 0px;
+				vertical-align: bottom;
+			}
+			#sideWindow {
+				float: left;
+				position: absolute;
+				z-index: 1;
+				transition: all 300ms 0s ease;
+				background-color: rgb(222, 222, 222);
+				top: 95px;
+			}
+			.hide {
+				transform: translateX(-540px);
+			}
+			input.toggle {
+				position: absolute;
+				z-index: 2;
+				clear: both;
+				left: 10px;
+				top: 650px;
+			}
+			form#buttons {
+				border: medium solid rgb(0, 204, 170);
+				float: left;
+				padding-bottom: 0px;
+			}
+			.radio-img{
+				width: 60px;
+				height: 60px;
+				cursor: pointer;
+				vertical-align: bottom;
+				margin-right: 4px;
+				transition: all 300ms 0s ease;
+			}
+			.modal-content{
+				border: 2px solid #aaa;
+				background: #fff;
+				z-index: 4;
+				position: fixed;
+				display: none;
+			}
+			#changeValueWindow{
+				margin: 1.5em auto 0;
+				padding: 10px 20px;
+			}
+			input[type="number"]{
+				width: 50px;
+			}
+			#trashBox{
+				background: #ddd;
+			}
+			.right{
+				position: absolute;
+				right: 20px;
+				z-index: 3;
+			}
+			#logo{
+				background-color: rgba(180, 180, 180, 0.3);
+				height: 90px;
+				position: absolute;
+				z-index: 3;
+			}
+			#settingBtn{
+				top: 25px;
+				transition: all 300ms 0s ease;
+				vertical-align: bottom;
+			}
+			#settingWindow{
+				right: 60px;
+				transition: all 300ms 0s ease;
+			}
+			input[type="range"]{
+				width: 200px;
+			}
+			#hue{
+				top: 110px;
+			}
+			#max{
+				top: 90px;
+			}
+			#min{
+				top: 465px;
+			}
+			#control-buttons{
+				position: absolute;
+				z-index: 1;
+				left: 350px;
+				height: 90px;
+				background-color: rgb(222, 222, 222);
+			}
+			#play{
+				vertical-align: bottom;
+				transition: all 300ms 0s ease;
+			}
+			#pause{
+				vertical-align: bottom;
+				transition: all 300ms 0s ease;
+			}
+			#chart-container{
+				top: 500px;
+				width: 380px;
+			}
+		</style>
+		<!-- シェーダー -->
+		<script type="x-shader/x-vertex" id="vshader">
+			varying vec3 pos;
+			void main() {
+				pos = position;
+				gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+			}
+		</script>
+		<script type="x-shader/x-fragment" id="fshader">
+			varying vec3 pos;
+			uniform float u_zRange;
+			vec3 hsl2rgb(float h, float s, float l) {
+				float c = (1.0 - abs(2.0 * l - 1.0)) * s;
+				float x = c * (1.0 - abs(mod(h / 60.0, 2.0) - 1.0));
+				float m = l - c / 2.0;
+				vec3 rgbdash;
+				if(h >= 0.0 && h < 60.0) {
+					rgbdash = vec3(c, x, 0.0);
+				} else if(h >= 60.0 && h < 120.0) {
+					rgbdash = vec3(x, c, 0.0);
+				} else if(h >= 120.0 && h < 180.0) {
+					rgbdash = vec3(0.0, c, x);
+				} else if(h >= 180.0 && h < 240.0) {
+					rgbdash = vec3(0.0, x, c);
+				} else if(h >= 240.0 && h < 300.0) {
+					rgbdash = vec3(x, 0.0, c);
+				} else if(h >= 300.0 && h < 360.0) {
+					rgbdash = vec3(c, 0.0, x);
+				}
+				return vec3(rgbdash.x + m, rgbdash.y + m, rgbdash.z + m);
+			}
+			void main() {
+				//-u_zRange～+u_zRangeの範囲内の座標を、色相300～0の範囲に当てはめる
+				if(u_zRange < 0.001) {
+					gl_FragColor = vec4(hsl2rgb(0.0, 1.0, 0.5), 1.0);	//範囲が狭すぎる場合、全て赤にする
+				} else {
+					float h = 300.0 - (pos.z + u_zRange) * 150.0 / u_zRange;
+					h = clamp(h, 0.0, 300.0);
+					gl_FragColor = vec4(hsl2rgb(h, 1.0, 0.5), 1.0);
+				}
+			}
+		</script>
+
+	</head>
+	<body>
+		<div>
+			<div id="logo"><img src="img/logoimg.png" width="340" draggable="false"/></div>
+			<div id="control-buttons">
+				<img src="img/play.svg" width="60" id="play" draggable="false" />
+				<img src="img/pause.svg" width="60" id="pause" draggable="false" />
+				<img src="img/next.svg" width="40" id="next" style="display: none" draggable="false" /><br />
+				<label><input type="checkbox" id="autoStart" checked="checked" />Auto</label>
+			</div>
+			<div id="sideWindow">
+				<form id="buttons">
+					<img class="radio-img" id="dcBatteryBtn" src="img/dcbattery2.jpg"/><img class="radio-img" id="resistorBtn" src="img/resistor2.png"/><img class="radio-img" id="capacitorBtn" src="img/capacitor2.png"/><img class="radio-img" id="inductorBtn" src="img/inductor2.png"/>
+	              <img class="radio-img" id="acBatteryBtn" src="img/acBattery.png"/><img class="radio-img" id="switchBtn" src="img/switch2.png"/><img class="radio-img" id="conductorBtn" src="img/conductor.png"/><img class="radio-img" id="moveBtn" src="img/move.svg" draggable="false"/>
+				</form>
+				<br />
+			
+	                  <canvas id="canvas" width="512" height="512"></canvas>
+				<div class="modal-content" id="changeValueWindow">
+					<table>
+						<tr>
+							<td colspan="2"><strong><span id="element-name"></strong></span></td>
+							<td><img id="x" src="img/x.svg" width="30" height="30" onclick="closeWindow()" draggable="false"></td>
+						</tr>
+						<tr>
+							<td><span id="value-name"></span> </td><td><input id="value-input" type="number" /><span id="unit"></span></td> 
+							<td rowspan="3"><img id="trashBox" src="img/delete.svg" width="40" height="40" onclick="deleteElement()" draggable="false"/></td>
+						</tr>
+						<tr><td><span id="value-name2"></span> </td><td><input id="value-input2" type="number" /><span id="unit2"></span></td></tr>
+						<tr><td><span id="value-name3"></span> </td><td><input id="value-input3" type="number" /><span id="unit3"></span></td></tr>
+					</table>
+				</div>
+			</div>
+			<div class="right" id="settingBtn"><img src="img/setting.svg" width="40" height="40" draggable="false"></div>
+			<div class="modal-content" id="settingWindow">
+				<table>
+					<tr>
+						<td>電荷の表示　　　</td><td>電流スケール</td><td>電位スケール</td><td>時間スケール</td>
+					</tr>
+					<tr>
+						<td>
+							<img id="setting-plus" src="img/plus.png" width="40" draggable="false"/>
+							<img id="setting-minus" src="img/minus.png" width="40" draggable="false" />
+						</td>
+						<td><input type="range" id="currentSlider" min="1" max="20000" value="10000" /></td>
+						<td><input type="range" id="voltageSlider" min="1" max="20" value="10" /></td>
+						<td><input type="range" id="timeSlider" min="3" max="5" value="4" step="0.1" /></td>
+					</tr>
+				</table>
+			</div>
+			<div class="right" id="hue"><img src="img/hue.png" width="30" draggable="false"/></div>
+			<div class="right" id="max"></div>
+			<div class="right" id="min"></div>
+			<div id="canvas3D"></div>
+		</div>
+		<div>
+			<input type="button" class="toggle" value="show/hide" onclick="toggleSideBar()" />
+		</div>
+		
+		<div class="right" id="chart-container">
+			<canvas id="chart"></canvas>
+		</div>
+		<script src="lib/easeljs-0.8.2.min.js"></script>
+		<script src="lib/three.min.js"></script>
+		<script src="lib/OrbitControls.js"></script>
+		<script src="lib/Chart.min.js"></script>
+		<script src="lib/charge.js"></script>
+		
+		<script type="text/javascript">
+			(function init(){
+				initCreateJS();
+				initThree();
+			})();
+
+			//---------------------------------------------------------------------------------------------------------------------------
+			//DOM操作関連
+			//---------------------------------------------------------------------------------------------------------------------------
+			var sideWindow = document.getElementById("sideWindow");
+			var changeValueWindow = document.getElementById("changeValueWindow");
+			var elementName = document.getElementById("element-name");
+			var valueName = document.getElementById("value-name");
+			var valueInput = document.getElementById("value-input");
+			var valueInput2 = document.getElementById("value-input2");
+			var valueInput3 = document.getElementById("value-input3");
+			var unit = document.getElementById("unit");
+			var unit2 = document.getElementById("unit2");
+			var unit3 = document.getElementById("unit3");
+			var trashBox = document.getElementById("trashBox");
+			var xBtn = document.getElementById("x");
+			var playBtn = document.getElementById("play");
+			var pauseBtn = document.getElementById("pause");
+			var nextBtn = document.getElementById("next");
+			var autoStartCB = document.getElementById("autoStart");
+			var canvas3D = document.getElementById("canvas3D");
+			var settingBtn = document.getElementById("settingBtn");
+			var settingWindow = document.getElementById("settingWindow");
+			var settingPlus = document.getElementById("setting-plus");
+			var settingMinus = document.getElementById("setting-minus");
+
+			//回路入力部の表示/非表示
+			function toggleSideBar(){
+				sideWindow.classList.toggle("hide");
+			}
+			//回路素子ボタン
+			var dragMode="dcBattery";
+			document.getElementById("dcBatteryBtn").style.backgroundColor = "rgb(100, 206, 255)";
+			var radioBtns = document.getElementsByClassName("radio-img");
+			for(var i = 0; i < radioBtns.length; i++) {
+				radioBtns[i].addEventListener("click", function(e){ 
+					dragMode = this.id.slice(0, -3);//ボタンのIDのうち"Btn"を除く部分を切り出してdragModeにする（例：resistorBtn→resistor）
+					//選択されたボタンのみ背景色をつける
+					for(var j = 0; j < radioBtns.length; j++) {
+						radioBtns[j].style.backgroundColor = "transparent";
+					}
+					this.style.backgroundColor = "rgb(100, 206, 255)";
+				});
+			}
+
+			//値を変更するウインドウを開く
+			var deleteElement = null;
+			function openWindow(x, y, element) {
+				changeValueWindow.style.display = "inline";
+				changeValueWindow.style.left = (x + 20).toString() + "px";
+				changeValueWindow.style.top = y.toString() + "px";
+				elementName.innerHTML = element.nameText.text;
+				valueName.innerHTML = element.valueName;
+				valueInput.style.display = valueInput2.style.display =	valueInput3.style.display = "none";
+				unit2.innerHTML = unit3.innerHTML = "";
+				if(element.type != "conductor") {
+					valueInput.style.display = "inline";
+				} 
+				if(element.type == "switch") {				//スイッチであれば文字列(ON/OFF)を表示
+					valueInput.setAttribute("type", "button");
+					unit.innerHTML = "";
+					valueInput.value = element[element.values[0]];
+				
+				} else {										//スイッチでなければ素子に応じた値を表示
+					valueInput.setAttribute("type", "number");
+					valueInput.value = parseFloat(element[element.values[0]]);
+					unit.innerHTML = element.units[0];
+					if(element.type == "acBattery") {			//交流電源ならば電圧の実効値だけでなく周波数、初期位相を表示
+						valueInput2.value = parseFloat(element[element.values[1]]);
+						unit2.innerHTML = element.units[1];
+						valueInput2.style.display = "inline";
+						valueInput3.value = parseFloat(element[element.values[2]]);
+						unit3.innerHTML = element.units[2];
+						valueInput3.style.display = "inline";
+					}
+				}
+				deleteElement = function(e) {
+					closeWindow();
+					elements.some(function(v, i){
+						if (v == element) {
+							element.parent.removeChild(element);	//表示リストから削除
+							elements.splice(i,1);					//配列から削除
+						}
+					});
+					analyze(elements);
+				}
+			}
+			//値を変更するウインドウを閉じる
+			function closeWindow() {
+				changeValueWindow.style.display = "none";
+			}
+			trashBox.style.cursor = "pointer";
+			xBtn.style.cursor = "pointer";
+
+			valueInput.addEventListener("input", function(e) {
+				if(selectedElement) {
+					selectedElement.setValue(0, e.target.value);
+					analyze(elements);
+				}
+			});
+
+			//valueInputがbuttonになっているとき、クリックされたらスイッチの状態を変える。
+			valueInput.addEventListener("click", function(e) {
+				if(selectedElement.type != "switch") {			//buttonでないときは何もしない
+					return;
+				}
+				if(e.target.value == "ON") {
+					e.target.value = "OFF";
+					selectedElement.resistance = 9999999999999;
+					selectedElement.switchState = "OFF";
+					selectedElement.redraw("#00F");
+				} else if(e.target.value == "OFF") {
+					e.target.value = "ON";
+					selectedElement.resistance = 0;
+					selectedElement.switchState = "ON";
+					selectedElement.redraw("#00F");
+				}
+				selectedElement.setValue(0, e.target.value);
+			});
+			valueInput2.addEventListener("input", function(e) {
+				if(selectedElement) {
+					selectedElement.setValue(1, e.target.value);
+					analyze(elements);
+				}
+			});
+			valueInput3.addEventListener("input", function(e) {
+				if(selectedElement) {
+					selectedElement.setValue(2, e.target.value);
+					analyze(elements);
+				}
+			});
+
+			//playボタン
+			pauseBtn.style.backgroundColor = "rgb(100, 206, 255)";
+			playBtn.style.cursor = pauseBtn.style.cursor = nextBtn.style.cursor = "pointer";
+			playBtn.addEventListener("click", onStartAnalysis);
+			function onStartAnalysis() {
+				isplaying = true;
+				playBtn.style.backgroundColor = "rgb(100, 206, 255)";
+				pauseBtn.style.backgroundColor = "transparent";
+				nextBtn.style.display = "none";
+			}
+			//pauseボタン
+			pauseBtn.addEventListener("click", onStopAnalysis);
+			function onStopAnalysis() {
+				isplaying = false;
+				pauseBtn.style.backgroundColor = "rgb(100, 206, 255)";
+				playBtn.style.backgroundColor = "transparent";
+				if(circuit3D) {
+					nextBtn.style.display = "inline";
+				} else {
+					nextBtn.style.display = "none";
+				}
+			}
+			//回路ができあがった瞬間に自動的に解析するかどうかのチェックボックス
+			autoStartCB.addEventListener("change", function(){
+				autoStart = autoStartCB.checked;
+			});
+			//停止中だけ現れるボタン。１ステップだけ解析
+			nextBtn.addEventListener("click", function(){
+				if(circuit3D) {
+					isplaying = true;
+					update();
+					isplaying = false;
+				}
+			});
+
+			//設定ボタン
+			settingBtn.style.cursor = settingPlus.style.cursor = settingMinus.style.cursor = "pointer";
+			settingBtn.addEventListener("click", function() {
+				if(settingWindow.style.display == "inline") {
+					settingWindow.style.display = "none";
+					settingBtn.style.backgroundColor = "transparent";
+				} else {
+					settingWindow.style.display = "inline";
+					settingBtn.style.backgroundColor = "rgb(100, 206, 255)";
+				}
+			});
+			settingPlus.addEventListener("click", toggleChargeSign);
+			settingMinus.addEventListener("click", toggleChargeSign);
+			settingMinus.style.opacity = "0.5";
+			function toggleChargeSign() {
+				if(this === settingMinus) {
+					signOfCharge = "minus";
+					settingPlus.style.opacity = "0.3";
+					settingMinus.style.opacity = "1";
+				} else {
+					signOfCharge = "plus";
+					settingPlus.style.opacity = "1";
+					settingMinus.style.opacity = "0.3";
+				}
+				for(var i = 0; i < elements.length; i++) {
+					circuit3D.children[i].setChargeType(signOfCharge);
+				}
+			}
+			//スケール設定スライダー
+			var currentSlider = document.getElementById("currentSlider");
+			var voltageSlider = document.getElementById("voltageSlider");
+			var timeSlider = document.getElementById("timeSlider");
+			var currentScale = currentSlider.value = 10000;
+			var voltageScale = voltageSlider.value = 10;
+			var timeScale = timeSlider.value = 4;
+			currentSlider.addEventListener("input", function() {
+				currentScale = currentSlider.value;
+				if(!isplaying && circuit3D) {
+					for(var i = 0; i < elements.length; i++) {
+						circuit3D.children[i].cm = 0;
+						updateCharge(signOfCharge, isplaying);
+					}
+				}
+			});
+			voltageSlider.addEventListener("input", function() {
+				voltageScale = voltageSlider.value;
+				if(!isplaying && circuit3D) {
+					update3DModels(elements);
+				}
+			});
+			timeSlider.addEventListener("input", function() {
+				timeScale = timeSlider.value;
+			});
+
+			//---------------------------------------------------------------------------------------------------------------------------
+			//回路入力部
+			//---------------------------------------------------------------------------------------------------------------------------
+			var stage;
+			var selectedElement = null;
+			var elements = [];
+			function initCreateJS(){
+				var canvas = document.getElementById("canvas");
+				stage = new createjs.Stage(canvas);
+				stage.enableMouseOver();
+				if(createjs.Touch.isSupported()){
+    				createjs.Touch.enable(stage);
+				}
+				
+				var backGround = new createjs.Shape();
+				stage.addChild(backGround);
+				backGround.graphics.beginFill("#FFF").drawRect(0, 0, 512, 512);
+
+				var nodes = [];
+				for(var iy = 0; iy < 10; iy++){
+					for(var ix = 0; ix < 10; ix ++){
+						var newNode = new createjs.Shape().set({x: ix * 50 + 31, y: iy * 50 + 31, alpha: 0.1});
+						stage.addChild(newNode);
+						newNode.graphics.beginFill("#000").drawCircle(0, 0, 4);
+						newNode.potential = 0;
+						nodes.push(newNode);
+					}
+				}
+
+				var elementContainer = new createjs.Container();
+				stage.addChild(elementContainer);
+				stage.addEventListener("stagemousedown", mouseDownHandler);
+
+				//dragMode
+				// "conductor":導線, "resistor":抵抗, "capacitor":コンデンサー, "inductor":コイル, 
+				// "dcBattery":直流電源, "acBattery":交流電源, "switch":スイッチ, "move":素子が持つNodeの移動
+				dragMode = "conductor";
+				var newElement, targetNode, targetElement, nearestNode, tapTimer;
+				var mouseDownX, mouseDownY, n1x, n1y, n2x, n2y;
+				function mouseDownHandler(mde){
+					newElement = null;
+					//ドラッグ開始
+					stage.addEventListener("stagemousemove", pressMoveHandler);
+					stage.addEventListener("stagemouseup", pressUpHandler);
+					mouseDownX = mde.stageX;
+					mouseDownY = mde.stageY;
+					
+					//素子が選択されていない場合、ウインドウが開いていれば閉じる
+					closeWindow();
+
+					//マウスダウンした位置に最も近いnodeの座標を取得する
+					nearestNode = getNearestNode(mde.stageX, mde.stageY);
+					switch(dragMode){
+						case "move":	//nodeを動かす
+							//素子に近ければtargetElementのみ登録（targetNodeは登録しない）→ pressmoveの際に素子ごと動かす
+							for(var i = 0; i < elements.length; i++) {
+								if((elements[i].element.x - stage.mouseX) ** 2 + (elements[i].element.y - stage.mouseY) ** 2 < 20 ** 2) {
+								targetElement = elements[i];
+								//selectedElement = elements[i];
+								//マウスダウン時のnodeの位置を記録しておく
+								n1x = targetElement.connectedNode1.x;
+								n1y = targetElement.connectedNode1.y;
+								n2x = targetElement.connectedNode2.x;
+								n2y = targetElement.connectedNode2.y;
+								return;	
+								} 
+							}
+
+							//マウス座標に一番近いnodeを調べ、回路素子のnodeが描かれていれば、表示順が一番上のものを取得
+							for(var j = 0; j < elements.length; j++){
+								var e = elementContainer.children[j];
+								if( (e.nodeCircle1.x == nearestNode.x) && (e.nodeCircle1.y == nearestNode.y) ){
+									targetNode = e.nodeCircle1;
+									targetElement = e;
+								} else if( (e.nodeCircle2.x == nearestNode.x) && (e.nodeCircle2.y == nearestNode.y) ){
+									targetNode = e.nodeCircle2;
+									targetElement = e;
+								}
+							}
+							break;
+						default:	//ラジオボタンの選択に応じて、生成する回路素子の見た目を変える
+							newElement = new CircuitElement();
+							elementContainer.addChild(newElement);	
+							newElement.setNode1(nearestNode);
+							newElement.setNode2(nearestNode);
+							newElement.setElementType(dragMode);
+							break;
+					}
+				}
+	
+				function pressMoveHandler(pme){
+					switch(dragMode){
+						case "move":	
+							if(targetElement == selectedElement) { 
+								color = "#00F";	//選択中の素子であれば青色で描画する
+							} else {
+								color = "#000";	//選択中の素子でなければ黒色で描画する
+							}
+							if(targetNode){	//nodeをドラッグしている場合、nodeを移動させて再描画
+								//マウスの現在位置に最も近いnodeの座標を取得する
+								nearestNode = getNearestNode(pme.stageX, pme.stageY);
+								if(targetNode == targetElement.nodeCircle1) {
+									targetElement.setNode1(nearestNode);
+									targetElement.drawLine(color);
+								} else if(targetNode == targetElement.nodeCircle2) {
+									targetElement.setNode2(nearestNode);
+									targetElement.drawLine(color);
+								}
+							} else if(targetElement) {	//nodeでなく、素子全体をドラッグしている場合、マウスの移動量に応じて全体をずらして再描画
+								var moveX = pme.stageX - mouseDownX;
+								var moveY = pme.stageY - mouseDownY;
+								nearestNode = getNearestNode(n1x + moveX, n1y + moveY);
+								targetElement.setNode1(nearestNode);
+								nearestNode = getNearestNode(n2x + moveX, n2y + moveY);
+								targetElement.setNode2(nearestNode);
+								targetElement.drawLine(color);
+							}						
+							break;
+						default:
+							if(newElement) {
+								nearestNode = getNearestNode(pme.stageX, pme.stageY);
+								newElement.setNode2(nearestNode);
+								newElement.drawLine();
+							}
+							break;
+					}
+				}
+
+				function pressUpHandler(mue){
+					stage.removeEventListener("stagemousemove", pressMoveHandler);
+					stage.removeEventListener("stagemouseup", pressUpHandler);					
+					if(targetElement && !targetNode) {	//素子の近くでマウスダウンしていた場合
+						//スイッチはクリックでON・OFFを切替。スイッチ以外なら素子を青く塗りつぶす
+						if(targetElement.type == "switch") {
+							if(targetElement.switchState == "ON") {
+								targetElement.resistance = 9999999999999;
+								targetElement.setValue(0, "OFF");
+								targetElement.redraw("#000");
+							} else if(targetElement.switchState == "OFF") {
+								targetElement.resistance = 0;
+								targetElement.setValue(0, "ON");
+								targetElement.redraw("#000");
+							}
+							targetNode = null;
+							targetElement = null;
+							return; //スイッチ操作の際は、analyze()を行わない
+						}
+					}
+					targetNode = null;
+					targetElement = null;
+
+					//素子作成時、nodeCircle1と2が同じ場所なら削除
+					if(dragMode != "move" && newElement) {
+						if( (newElement.nodeCircle1.x != newElement.nodeCircle2.x) || (newElement.nodeCircle1.y != newElement.nodeCircle2.y) ){
+							elements.push(newElement);
+						} else {
+							elementContainer.removeChild(newElement);
+						}
+					} 
+					
+					analyze(elements);	//回路解析
+				}
+				//座標(x, y)に最も近いnodeを見つける
+				function getNearestNode(x, y) {
+					var d = 10000, nearest;
+					for(var i = 0; i < nodes.length; i++){
+						if((x - nodes[i].x) ** 2 + (y - nodes[i].y) ** 2 < d * d){
+							d = Math.sqrt((x - nodes[i].x) ** 2 + (y - nodes[i].y) ** 2);
+							nearest = nodes[i];
+						}
+					}
+					return nearest;
+				}
+
+				//ボタンをドラッグ　→　素子生成
+				var btnDragMode = "";
+				var dragElement;
+				var startY;
+				var radioBtns = document.getElementsByClassName("radio-img");
+				for(var i = 0; i < radioBtns.length; i++) {
+					radioBtns[i].addEventListener("dragstart", onDragStart);
+					radioBtns[i].addEventListener("dragend", onDragEnd);
+				}
+				var droppable = false;
+				var canvas = document.getElementById("canvas");
+				canvas.addEventListener("drop", onDrop);
+				canvas.addEventListener("dragover", onDrag);
+				function onDragStart(dse){
+					btnDragMode = this.id.slice(0, -3);//ボタンのIDのうち"Btn"を除く部分を切り出してbtnDragModeにする（例：resistorBtn→resistor）
+					dragElement = new CircuitElement();
+					elementContainer.addChild(dragElement);
+					dragElement.setElementType(btnDragMode);
+					startY = dse.clientY;
+				}
+				function onDrag(de){ 
+					var node1 = getNearestNode(de.clientX - 25, de.clientY - startY - 25);
+					var node2 = getNearestNode(de.clientX + 25, de.clientY - startY - 25);
+					dragElement.setNode1(node1);
+					dragElement.setNode2(node2);
+					dragElement.drawLine("000");
+					de.preventDefault();
+				}
+				function onDrop(de2){ 
+					var node1 = getNearestNode(de2.clientX - 25, de2.clientY - startY - 25);
+					var node2 = getNearestNode(de2.clientX + 25, de2.clientY - startY - 25);
+					dragElement.setNode1(node1);
+					dragElement.setNode2(node2);
+					dragElement.drawLine("000");
+					dragMode = "move";
+					//moveボタンのみ背景色をつける
+					for(var j = 0; j < radioBtns.length; j++) {
+						radioBtns[j].style.backgroundColor = "transparent";
+					}
+					document.getElementById("moveBtn").style.backgroundColor = "rgb(100, 206, 255)";
+					btnDragMode = "";
+					de2.preventDefault();
+				}
+				function onDragEnd(dee){
+					//ドラッグ終了位置がstage外であるか、node1とnode2が同じ位置になる場合は素子を削除。
+					if((document.elementFromPoint(dee.clientX, dee.clientY) != canvas)||((dragElement.nodeCircle1.x == dragElement.nodeCircle2.x) && (dragElement.nodeCircle1.y == dragElement.nodeCircle2.y))) {
+						elementContainer.removeChild(dragElement);
+					} else {
+						elements.push(dragElement);
+						analyze(elements);	//回路解析
+					}
+				}
+
+				//素子の近くをダブルクリック　→　値設定ウインドウを開く
+				stage.addEventListener("dblclick", function(dce){ 
+					for(var i = 0; i < elements.length; i++) {
+						if((elements[i].element.x - stage.mouseX) ** 2 + (elements[i].element.y - stage.mouseY) ** 2 < 20 ** 2) {
+							selectedElement = elements[i];
+							targetElement = elements[i];
+							openWindow(stage.mouseX, stage.mouseY, selectedElement);
+							selectedElement.redraw("#00F");	//青くする
+							selectedElement.drawLine("#00F");
+							elementContainer.addChildAt(selectedElement, elementContainer.numChildren);	//最上位に表示
+							drawChart(selectedElement);//グラフを表示
+							//選択されていない素子を黒で描き直す
+							for(var j = 0; j < elements.length; j++) {
+								if(elements[j] != selectedElement) {
+								elements[j].redraw("#000");	
+								elements[j].drawLine("#000");
+								}
+							}
+							return;	
+						} 
+					}
+				});
+			}
+
+			//CircuitElementクラス
+			function CircuitElement(){
+				this.Container_constructor();
+				this.initialize();
+			}
+			createjs.extend(CircuitElement, createjs.Container);
+			CircuitElement.numResistors = 0;
+			CircuitElement.numCapacitors = 0;
+			CircuitElement.numInductors = 0;
+			CircuitElement.numBatteries = 0;
+			CircuitElement.numSwitches = 0;
+			CircuitElement.prototype.initialize = function() {
+				//節点の●
+				this.nodeCircle1 = new createjs.Shape();
+				this.nodeCircle1.graphics.beginFill("#000").drawCircle(0, 0, 4);
+				this.addChild(this.nodeCircle1);
+				this.nodeCircle1.cursor = "pointer";
+				this.nodeCircle2 = new createjs.Shape();
+				this.nodeCircle2.graphics.beginFill("#000").drawCircle(0, 0, 4);
+				this.addChild(this.nodeCircle2);
+				this.nodeCircle2.cursor = "pointer";
+
+				//節点同士を結ぶ線
+				this.line = new createjs.Shape();
+				this.addChild(this.line);
+
+				//回路素子の絵
+				this.element = new createjs.Shape();
+				this.addChild(this.element);
+
+				//回路図上の角度と長さ
+				this.angle = 0;
+				this.length = 0;
+
+				//つながっている節点への参照（回路解析用）
+				this.connectedNode1 = null;
+				this.connectedNode2 = null;
+				
+				//回路素子の近くに表示する文字
+				this.textDistance = 30;	//回路素子の絵からの距離
+				//素子名（例：R1）
+				this.nameText = new createjs.Text("", "16px sans-serif", "Black");
+				this.nameText.textBaseline = "alphabetic";
+				this.addChild(this.nameText);
+				//素子の物理量（例：抵抗値）
+				this.valueName = "";
+				//素子の値（例：10Ω）
+				this.valueText = new createjs.Text("", "16px sans-serif", "Black");
+				this.addChild(this.valueText);
+				this.valueText2 = new createjs.Text("", "16px sans-serif", "Black");
+				this.addChild(this.valueText2);
+				//変更可能な値の変数名(String)を入れる配列
+				this.values = [];
+				this.units = [];
+				//素子の値表示を変える関数
+				this.setValueText = function() {
+					if(this.type == "conductor") {
+						return;
+					}
+					this.valueText.text = this[this.values[0]].toString() + this.units[0];
+					if(this.type == "acBattery") {
+						this.valueText2.text = this[this.values[1]].toString() + this.units[1];
+					}
+				}
+				//値を変える関数
+				this.setValue = function (index, newValue) {
+					if(this.type == "switch") {
+						this[this.values[index]] = newValue; 
+					} else {
+						this[this.values[index]] = parseFloat(newValue);
+					}
+					this.setValueText();
+				};
+
+				this.emf = 0;
+				this.resistance = 0;
+				this.capacitance = 0;
+				this.selfInductance = 0;
+				this.frequency = 0;
+				this.initialPhase = 0;
+				this.emfTemp = 0;
+				this.type = "";
+				this.switchState = "";
+
+				this.voltage = 0;
+				this.current = 0;
+				this.q = 0;
+
+				this.voltageData = [];
+				this.currentData = [];
+			}
+			CircuitElement.prototype.setElementType = function (type) {
+				this.type = type;
+				switch(this.type) {
+					case "conductor":
+						this.valueName = "導線";
+						this.units[0] = ""
+						break;
+					case "resistor":
+						this.resistance = 10;
+						this.valueName = "抵抗値";
+						this.nameText.text = "R" + (++CircuitElement.numResistors).toString();
+						this.units[0] = "Ω"
+						this.values[0] = "resistance";
+						break;
+					case "capacitor":
+						this.capacitance = 10;
+						this.valueName = "電気容量";
+						this.nameText.text = "C" + (++CircuitElement.numCapacitors).toString();
+						this.textDistance = 40;
+						this.units[0] = "μF"
+						this.values[0] = "capacitance";
+						break;
+					case "inductor":
+						this.selfInductance = 10;
+						this.valueName = "自己インダクタンス";
+						this.nameText.text = "L" + (++CircuitElement.numInductors).toString();
+						this.units[0] = "H"
+						this.values[0] = "selfInductance";
+						break;
+					case "dcBattery":
+						this.emf = 5;
+						this.valueName = "電圧";
+						this.nameText.text = "E" + (++CircuitElement.numBatteries).toString();
+						this.textDistance = 40;
+						this.units[0] = "V"
+						this.values[0] = "emf";
+						break;
+					case "acBattery":
+						this.emf = 5;
+						this.valueName = "電圧の実効値";
+						this.nameText.text = "E" + (++CircuitElement.numBatteries).toString();
+						this.textDistance = 40;
+						this.units.push("V", "Hz", "°");
+						this.frequency = 60;
+						this.initialPhase = 0;
+						this.values.push("emf", "frequency", "initialPhase");
+						break;
+					case "switch":
+						this.resistance = 9999999999999;
+						this.valueName = "スイッチの状態";
+						this.switchState = "OFF";
+						this.nameText.text = "S" + (++CircuitElement.numSwitches).toString();
+						this.units[0] = ""
+						this.values[0] = "switchState";
+						break;
+				}
+				this.redraw("#000");
+			}
+			CircuitElement.prototype.setNode1 = function(node){
+				this.nodeCircle1.x = node.x;
+				this.nodeCircle1.y = node.y;
+				this.connectedNode1 = node;
+			}
+			CircuitElement.prototype.setNode2 = function(node){
+				this.nodeCircle2.x = node.x;
+				this.nodeCircle2.y = node.y;
+				this.connectedNode2 = node;
+			}
+			CircuitElement.prototype.drawLine = function(color) {
+				var lineColor = color || "#000";
+				var x1 = this.nodeCircle1.x;
+				var x2 = this.nodeCircle2.x;
+				var y1 = this.nodeCircle1.y;
+				var y2 = this.nodeCircle2.y;
+				var len = Math.sqrt( (x2 - x1) * (x2 - x1) + (y2 - y1) * (y2 - y1) );
+				var angle = Math.atan2(y2 - y1 , x2 - x1);
+				var x3 = x1 + (len / 2 - 25) * Math.cos(angle);
+				var y3 = y1 + (len / 2 - 25) * Math.sin(angle);
+				var x4 = x1 + (len / 2 + 25) * Math.cos(angle);
+				var y4 = y1 + (len / 2 + 25) * Math.sin(angle);
+				this.line.graphics.clear().setStrokeStyle(4).beginStroke(lineColor).moveTo(x1, y1).lineTo(x3, y3).moveTo(x4, y4).lineTo(x2, y2);
+				this.element.x = (x1 + x2) / 2;
+				this.element.y = (y1 + y2) / 2;
+				this.element.rotation = angle * 180 / Math.PI;
+				this.length = len;
+				this.angle = angle;
+				//3Dモデル作成時に参照する用
+				this.element.p1 = {x: x3, y: y3};
+				this.element.p2 = {x: x4, y: y4};
+				//テキスト位置
+				var textangle = angle + Math.PI / 2;
+				this.nameText.x = this.valueText.x = this.valueText2.x = this.textDistance * Math.cos(textangle) + this.element.x - 8;
+				this.nameText.y = this.valueText.y = this.textDistance * Math.sin(textangle) + this.element.y;
+				this.valueText2.y = this.valueText.y + 15;
+				this.setValueText();
+			}
+			CircuitElement.prototype.redraw = function(color) {
+				var g = this.element.graphics.clear().setStrokeStyle(4).beginStroke(color);
+				switch(this.type) {
+					case "conductor":
+						g.moveTo(-25, 0).lineTo(25, 0);
+						break;
+					case "resistor":
+						g.moveTo(-25, 0).lineTo(25, 0).beginFill("#FFF").drawRect(-20, -7.5, 40, 15);
+						break;
+					case "capacitor":
+						g.moveTo(-25, 0).lineTo(-8, 0).moveTo(8, 0).lineTo(25, 0).moveTo(-8, -20).lineTo(-8, 20).moveTo(8, -20).lineTo(8, 20);
+						break;
+					case "inductor":
+						g.arc(-18.75, 0, 6.25, -Math.PI-0.3, 0, false).arc(-6.25, 0, 6.25, -Math.PI, 0, false)
+							.arc(6.25, 0, 6.25, -Math.PI, 0, false).arc(18.75, 0, 6.25, -Math.PI + 0.3, 0, false);
+						break;
+					case "dcBattery":
+						g.moveTo(-25, 0).lineTo(-5, 0).moveTo(5, 0).lineTo(25, 0).moveTo(-5, -10).lineTo(-5, 10).moveTo(5, -20).lineTo(5, 20);
+						break;
+					case "acBattery":
+						g.beginFill("#FFF").drawCircle(0, 0, 25).endFill().arc(-10, 0, 10, -Math.PI, 0).arc(10, 0, 10, -Math.PI, 0, true);
+						break;
+					case "switch":
+						if(this.switchState == "OFF") {
+							g.moveTo(-25, 0).lineTo(-10, 0).lineTo(14, -13).moveTo(15, 0).lineTo(25, 0);
+						} else {
+							g.moveTo(-25, 0).lineTo(-10, 0).lineTo(16, -3).moveTo(15, 0).lineTo(25, 0);
+						}
+						break;
+				}
+			}
+			createjs.promote(CircuitElement, "Container");
+
+			//---------------------------------------------------------------------------------------------------------------------------
+			//グラフ表示部
+			//---------------------------------------------------------------------------------------------------------------------------
+			var dummyData = [];	//concat()でコピーして渡す用。200個の0が入っている
+			var dummyLabel = [];//concat()でコピーして渡す用。200個の""が入っている
+			for(var i = 0; i < 200; i++) {
+				dummyData[i] = 0;
+				dummyLabel[i] = "";
+			}
+			var chart = new Chart("chart", {
+				type: "line", 
+				data: {
+					labels: dummyLabel.concat(),
+					datasets:[
+						//chart.data.datasets[0].data 電流ー時間グラフのデータ配列
+						{label: "電流", backgroundColor: "orange", borderColor: "orange", data: dummyData.concat(), fill: false, pointRadius: 2},	
+						//chart.data.datasets[1].data 電圧ー時間グラフのデータ配列
+						{label: "電圧", backgroundColor: "lime", borderColor: "lime", data: dummyData.concat(), fill: false, pointRadius: 2},	
+					]
+				},
+				options: {
+					title:{ display: true, text:"" },	//chart.options.title.text グラフタイトル。選択された素子名を表示
+					animation: false,
+					scales: {yAxes: [
+						{ type: "linear", display: true, position: "left", id: "current", ticks: {beginAtZero: true, min: -10, max: 10}, scaleLabel: {display: true, labelString: '電流'} },
+						{ type: "linear", display: true, position: "right", id: "voltage", ticks: {beginAtZero: true, min: -10, max: 10}, scaleLabel: {display: true, labelString: '電圧'}}
+					]},
+					//tooltips: { mode: "x", intersect: false },
+					//hover:  { mode: "x", intersect: false }
+				}
+			});
+			var chartTarget;
+			function drawChart(target) {
+				chartTarget = target;
+				chart.options.title.text = target.nameText.text;
+				chart.data.datasets[0].data = target.currentData;
+				chart.data.datasets[1].data = target.voltageData;
+			}
+
+			function updateChart(){
+				if(chartTarget) {
+					chart.data.datasets[0].data = chartTarget.currentData;
+					chart.data.datasets[1].data = chartTarget.voltageData;
+				}
+				chart.update();
+			}
+
+
+			//---------------------------------------------------------------------------------------------------------------------------
+			//回路解析
+			//---------------------------------------------------------------------------------------------------------------------------
+			var debugMode = false;
+			var isplaying = false;
+			var errorFlag = false;
+			var autoStart = true;
+			var lp, numbranches, numNodes, tree, inc, usingNodes;
+			function analyze(elements) {
+				errorFlag = false;
+				analyzeCircuit(elements);
+				if(errorFlag) {
+					onStopAnalysis();
+				} else {
+					if(autoStart) {
+						onStartAnalysis();
+					}
+				}
+			}
+			function analyzeCircuit(elements) {
+				t = 0;
+				for(var i = 0; i < elements.length; i++) {
+					var e = elements[i];
+					e.voltage = e.current = e.q = 0;
+					e.currentData = dummyData.concat();
+					e.voltageData = dummyData.concat();
+				}
+				errorFlag = true;	//analyzeCircuit()の始めにtrueにし、analyze2()の最後の行に到達したらfalseにする
+				//3Dモデルが表示されていれば削除
+				if(circuit3D) {
+					scene.remove(circuit3D);
+					circuit3D = null;
+					scene.remove(nodeSpheres);
+					scene.remove(lines);
+				}
+				if(debugMode) console.log("-------------------------");
+				var incidenceMatrix = [];
+				usingNodes = [];
+				//表示中の素子につながっている節点を、重複のないようにすべて把握する
+				for(var i = 0; i < elements.length; i++){
+					var n1 = elements[i].connectedNode1;
+					var n2 = elements[i].connectedNode2;
+					if(!usingNodes.includes(n1)){
+						usingNodes.push(n1);
+					}
+					if(!usingNodes.includes(n2)){
+						usingNodes.push(n2);
+					}
+				}
+				for(var i = 0; i < usingNodes.length; i++) {
+					var count = 0;
+					for(var j = 0; j < elements.length; j++) {
+						if(usingNodes[i] == elements[j].connectedNode1 || usingNodes[i] == elements[j].connectedNode2) {
+							count++;
+						}
+					}
+					if(count == 1) {
+						if(debugMode) console.log("回路につながっていない素子があります");
+						return;
+					}
+				}
+				//節点をy座標順にソートし、y座標が同じならx座標順にソート
+				usingNodes.sort(function(a, b){
+					if(a.y > b.y){
+						return 1;
+					} else if(a.y < b.y){
+						return -1;
+					} else {
+						if(a.x > b.x){
+							return 1;
+						} else {
+							return -1;
+						}
+					}
+				});
+				numNodes = usingNodes.length;
+				numBranches = elements.length;
+				var n, b;	//ループ変数用
+
+				//incidenceMatrix（接続行列：行＝節点、列＝枝）を作成------------------------------------------------------------------------------
+				if(debugMode) console.log("＜接続行列＞");
+				var rootNodeIndex = 0;	//最も接続枝の多い節点の番号
+				var branches = [];
+				var branchesOfRootNode = [];
+				for(n = 0; n < numNodes; n++) {
+					incidenceMatrix[n] = [];
+					//節点をチェックし、connectedNode1なら-1、connectedNode2なら1、接続していなければ0を挿入
+					for(b = 0; b < numBranches; b++) {
+						if(elements[b].connectedNode1 == usingNodes[n]) {
+							incidenceMatrix[n][b] = -1;
+							branches.push(b);
+						} else if(elements[b].connectedNode2 == usingNodes[n]) {
+							incidenceMatrix[n][b] = 1;
+							branches.push(b)
+						} else {
+							incidenceMatrix[n][b] = 0;
+						}
+					}
+					//接続する枝が多ければ更新(slice(0)は、配列をコピーしている)
+					if(branches.length > branchesOfRootNode.length) {
+						rootNodeIndex = n;
+						branchesOfRootNode = branches.slice(0);
+					}
+					if(debugMode) console.log(incidenceMatrix[n].toString());
+				}
+				inc = incidenceMatrix;	//以後の呼び出し名を短くする
+
+				//木を作成（幅優先探索）---------------------------------------------------------------------------------------------------------
+				tree = [];	//木に含まれる枝の番号
+				var cotree = [];//補木に含まれる枝の番号
+				var visitedNode = [rootNodeIndex];//木に追加済みの節点番号
+				var queue = [rootNodeIndex];	//幅探索用キュー
+				var currentNode;
+				do {
+					currentNode = queue.shift();									//キューの先頭を取り出す
+					for(b = 0; b < numBranches; b++) {
+						if(inc[currentNode][b] != 0) {								//節点currentNodeが枝bに接続していれば
+							for(n = 0; n < numNodes; n++) {
+								if(inc[n][b] != 0 && !visitedNode.includes(n)) {	//枝bが節点nに接続しており、かつ節点nが未訪問であれば
+									tree.push(b);									//枝bを木に追加し、
+									visitedNode.push(n);							//節点を訪問済みとする
+									queue.push(n);									//節点nをキューに追加
+								}
+							}
+						}
+					}
+				} while(queue.length != 0);											//キューが空にならなければ繰り返し
+				if(visitedNode.length != numNodes) {
+					if(debugMode) console.log("回路につながっていない素子があるため、木が出来ません");
+					return;
+				} else {
+					if(debugMode) console.log("＜木＞");
+					if(debugMode) console.log(tree.toString());
+				}
+				for(i = 0; i < numBranches; i++) {
+					if(!tree.includes(i)) {
+						cotree.push(i);
+					}
+				}
+				if(cotree.length == 0) {
+					if(debugMode) console.log("補木がないため閉路が出来ません");
+					return;
+				}
+				if(debugMode) console.log("＜補木＞");
+				if(debugMode) console.log(cotree.toString());
+				
+				//loopMatrix（閉路行列：行＝閉路、列＝枝）を作成-----------------------------------------------------------------------------------
+				var loopMatrix = [];
+				var visitedBranches;
+				var currentBranch;
+				var complete;
+				var loopNodes;
+				var loopBranches;
+				for(i = 0; i < cotree.length; i++){
+					loopMatrix[i] = [];
+					loopBranches = [];								//閉路に含まれる枝
+					loopNodes = [];									//閉路に含まれる節点
+					for(var j = 0; j < numBranches; j++) {
+						loopMatrix[i][j] = 0;						//枝の数だけ、要素0を入れておく
+					}
+					visitedNode = [];
+					visitedBranches = [];
+					visitedBranches[0] = cotree[i];
+					
+					loopBranches[0] = cotree[i];
+					currentBranch = cotree[i];
+					
+					var goalNode;
+					loopMatrix[i][cotree[i]] = 1;								//補木の枝を閉路に含み、順方向とする
+					for(n = 0; n < numNodes; n++) {
+						if(incidenceMatrix[n][cotree[i]] == 1) {				//補木の枝との接続が1→始点
+							visitedNode.push(n);
+							loopNodes.push(n);
+							currentNode = n;
+						} else if(incidenceMatrix[n][cotree[i]] == -1) {		//補木の枝との接続が-1→終点
+							goalNode = n;
+						}
+					}
+					complete = false;
+					searchLoop();
+				}
+				var hasNext;
+				function searchLoop() {
+					if(complete) {
+						return;
+					}
+					hasNext = false;
+					for(b = 0; b < tree.length; b++) {
+						if(inc[currentNode][tree[b]] != 0 && !visitedBranches.includes(tree[b])) {	//未訪問の木の枝と接続していれば
+							loopMatrix[i][tree[b]] = -inc[currentNode][tree[b]];					//閉路行列の値＝ー（接続行列の値）
+							currentBranch = tree[b];											//その枝に移動
+							visitedBranches.push(tree[b]);										//訪問済みとする
+							for(n = 0; n < numNodes; n++) {
+								if(inc[n][currentBranch] != 0 && !visitedNode.includes(n)) {	//未訪問の節点と接続していれば
+									currentNode = n;											//その節点に移動
+									visitedNode.push(n);										//訪問済みとする
+									loopNodes.push(n);											//ループに含まれる節点とする
+									if(n == goalNode) {											//終点なら探索終了
+										complete = true;
+									}
+									hasNext = true;												//次へ進めるというフラグを立てる
+									break;														//次の節点が１つ見つかれば、ループを抜ける
+								}
+							}
+						}
+						if(hasNext) {															//節点→枝→次の節点　と進める場合
+							loopBranches.push(tree[b]);											//訪問した枝を記録
+							searchLoop();														//次の節点を探す（再帰）
+						}
+					}
+					if(complete) {
+						return;
+					}
+					//ここまで来て、閉路が完成していないなら行き止まりということ→１つ前の節点に戻ってやり直す
+					loopNodes.pop();															//行き止まりとなった節点を削除
+					loopMatrix[i][loopBranches.pop()] = 0;										//行き止まり節点につながる枝を削除し、閉路行列の値を0に戻す
+					currentNode = loopNodes[loopNodes.length - 1];								//行き止まりになる前の節点に戻る
+					searchLoop();																//次の節点を探す（再帰）
+				}
+				lp = loopMatrix;	//以後の呼び出し名を短くする
+				if(debugMode) console.log("＜閉路行列＞");
+				for(i = 0; i < cotree.length; i++) {
+					if(debugMode) console.log(lp[i].toString());
+				}
+				errorFlag = false;
+			}
+			var t = 0;
+			var dt;
+			function update() {
+				dt = 10 ** (-timeScale);
+				t += dt;
+				//交流電源、コンデンサー、コイルの起電力・抵抗値の更新
+				for(i = 0; i < elements.length; i++) {
+					var e = elements[i];			
+					switch(e.type) {
+						case "dcBattery":
+							e.emfTemp = e.emf;
+						break;
+						case "acBattery":
+							e.emfTemp = Math.sqrt(2) * e.emf * Math.sin(2 * Math.PI * e.frequency * t + e.initialPhase * Math.PI / 180);
+						break;
+						case "capacitor":									//V = Σ[k=0,n](I_k * Δt / C) → V - Σ[k=0,n-1](I_k * Δt / C) = I_n * (Δt / C)
+							e.emfTemp = -e.q / e.capacitance;				//　→　起電力=-Σ[k=0,n-1](I_k * Δt / C)=(前回までのQ)/C ※単位はV=μC/μF
+							e.resistance = dt / (e.capacitance / 1000000);	//	→　抵抗=(Δt / C) ※Cの単位はμF→Fに直す
+						break;
+						case "inductor":									//V = -L * (I_n - I_n-1 )/ Δt →  V + (L * I_n-1 / Δt) = (L * I_n-1 / Δt)
+							e.emfTemp = e.selfInductance * e.current / dt;	//　→　起電力E=(L * I_n-1 / Δt)
+							e.resistance = e.selfInductance / dt;			//	→　抵抗R=(L * I_n-1 / Δt)
+						break;
+					}
+					
+				}
+
+
+				//閉路方程式「ZI = E」を立てる。まずZとEを作る。-----------------------------------------------------------------------------------
+				var Z = [];	//インピーダンス行列。
+							//対角要素に対して対称。対角要素[i][i]は閉路iに含まれる抵抗の和。
+							//非対角要素[i][j]は閉路iと閉路jに共通に含まれる抵抗の和。逆向きに含まれる場合マイナスがつく。
+				var I = [];	//閉路電流行列。閉路ごとに、閉路電流の値を記録する。
+				var E = [];	//電圧源行列。閉路ごとに、起電力の和を記録する。
+				for(i = 0; i < lp.length; i++) {
+					Z[i] = [];
+					E[i] = 0;
+					for(j = 0; j < lp.length; j++) {
+						Z[i][j] = 0;
+						if(i == j) {											//対角要素のとき
+							for(b = 0; b < numBranches; b++) {
+								if(lp[i][b] != 0) {								//閉路に枝が含まれるなら
+									E[i] += lp[i][b] * elements[b].emfTemp;		//枝が持つ起電力を足す（loopMatrix[i][b]は起電力の向きを表す）
+									Z[i][j] += elements[b].resistance;			//抵抗値を足す。対角要素なので同じ閉路を見ている→閉路の向きは同じ
+								}
+							}
+							if(Z[i][j] == 0) {	//閉路の抵抗の和が0の場合
+								if(debugMode) console.log("抵抗のない閉路があります");
+								return;
+							}
+						} else {													//非対角要素のとき
+							for(b = 0; b < numBranches; b++) {
+								if(lp[i][b] * lp[j][b] != 0) {						//閉路iと閉路jの両方に枝が含まれるなら
+									var direction = lp[i][b] * lp[j][b];
+									Z[i][j] += elements[b].resistance *	direction;	//閉路が同じ向きなら抵抗値を足す。逆向きなら引く。
+								}
+							}
+						}
+					}
+				}
+				if(debugMode) console.log("＜インピーダンス行列,電圧源行列＞");
+				for(i = 0; i < Z.length; i++){
+					if(debugMode) console.log(Z[i].toString(),E[i].toString());
+				}
+
+				//ガウスの消去法で閉路方程式ZI=Eを解き、閉路電流行列Iを求める------------------------------------------------------------------------
+				//前進消去
+				for(i = 0; i < E.length; i++) {
+					I[i] = E[i];
+				}
+				for(i = 0; i < Z.length; i++) {
+					for(j = i + 1; j < Z.length; j++) {
+						var m = Z[j][i] / Z[i][i];
+						Z[j][i] = m;
+						for(var k = i; k < Z.length; k++) {
+							Z[j][k] -= m * Z[i][k];
+						}
+						I[j] -= m * I[i];
+					}
+				}
+				//後退代入
+				for(i = Z.length - 1; i >= 0; i--) {
+					for(j = i + 1; j < Z.length; j++) {
+						I[i] -= Z[i][j] * I[j];
+					}
+					I[i] /= Z[i][i];
+				}
+
+				if(debugMode) console.log("＜閉路電流行列＞");
+				for(i = 0; i < Z.length; i++){
+					if(debugMode) console.log(I[i].toString());
+				}
+
+				//枝電流・枝電圧を求める----------------------------------------------------------------------------------------------------
+				for(b = 0; b < numBranches; b++) {
+					var el = elements[b];
+					el.current = 0;
+					for(i = 0; i < lp.length; i++) {
+						el.current += lp[i][b] * I[i];			//枝電流＝（閉路に対する枝の向き（閉路行列の値）× 閉路電流）の総和
+					}
+					el.currentData.push(el.current * 10);
+					el.currentData.shift();
+					el.voltage = el.emfTemp - el.resistance * el.current;	//枝電圧＝起電力ー抵抗×電流
+					if(el.type == "dcBattery" || el.type == "acBattery") {
+						el.voltageData.push(el.voltage);
+					} else {
+						el.voltageData.push(-el.voltage);
+					}
+					el.voltageData.shift();
+					if(el.type == "capacitor") {
+						el.q += el.current * dt * 1000000;	//単位：μC
+					}
+				}
+
+				//各節点の電位を求める------------------------------------------------------------------------------------------------------
+				queue = [0];
+				visited = [0];
+				var nodePotential = [];
+				for(i = 0; i < numNodes; i++) {
+					nodePotential[i] = 0;
+				}
+				do {
+					currentNode = queue.shift();
+					for(b = 0; b < tree.length; b++) {
+						el = elements[tree[b]];
+						for(n = 0; n < numNodes; n++) {
+							if(visited.includes(n)){													//一度通った節点は見ない
+								continue;
+							}
+							if(inc[currentNode][tree[b]] == 1 && inc[n][tree[b]] == -1 ) {				//currentNode →tree[b]→nのとき
+								nodePotential[n] = nodePotential[currentNode] - el.voltage;				//nの電位＝currentNodeの電位＋枝電圧
+								queue.push(n);
+								visited.push(n);
+							} else if(inc[currentNode][tree[b]] == -1 && inc[n][tree[b]] == 1 ) {		//currentNode ←tree[b]←nのとき
+								nodePotential[n] = nodePotential[currentNode] + el.voltage;				//nの電位＝currentNodeの電位ー枝電圧
+								queue.push(n);
+								visited.push(n);
+							}
+						} 
+					}
+				} while(queue.length != 0);
+				if(debugMode) console.log("＜節点電位＞");
+				if(debugMode) console.log(nodePotential.toString());
+				//3D表示
+				setNodePotential(usingNodes, nodePotential);
+				if(!circuit3D) {
+					create3DModels(elements);
+				} else {
+					update3DModels(elements);
+				}
+			}
+
+			//---------------------------------------------------------------------------------------------------------------------------
+			//3D部分
+			//---------------------------------------------------------------------------------------------------------------------------
+			var scene, camera, plane, circuit3D, controls;
+			function initThree(){
+				var canvas3D = document.getElementById("canvas3D");
+				var renderer = new THREE.WebGLRenderer();
+				if (!renderer) {
+					alert('rendererがありません')
+				}
+				renderer.setSize(canvas3D.clientWidth, canvas3D.clientHeight);
+				canvas3D.appendChild(renderer.domElement);
+				renderer.setClearColor(0xEEEEEE, 1.0);
+				scene = new THREE.Scene();
+
+				//カメラ
+				camera = new THREE.PerspectiveCamera(45, canvas3D.clientWidth / canvas3D.clientHeight, 0.1, 10000);
+				camera.position.set(0, -500, 500);
+				camera.up.set(0, 0, 1);
+				camera.lookAt({ x: 0, y: 0, z: 0 });
+				controls = new THREE.OrbitControls(camera, canvas3D);
+
+				//オブジェクト
+				var texture = new THREE.Texture(canvas);
+				//回路図平面
+				plane = new THREE.Mesh(new THREE.PlaneGeometry(512, 512, 10, 10),
+					new THREE.MeshBasicMaterial({map: texture, transparent: true, side: THREE.DoubleSide}));
+				scene.add(plane);
+				var step = 0;
+				//メインループ
+				(function loop() {
+					stage.update();
+					if(isplaying) {
+						update();		
+						updateChart();
+					}
+					//カメラ位置から見て、回路図の向こう側にも描画されるとき、回路図を半透明にする
+					if((min < 0.2 && camera.position.z > 0) || ((max > 0.2 && camera.position.z < 0))) {
+						plane.material.opacity = 0.5;
+					} else {
+						plane.material.opacity = 1;
+					}
+				    renderer.render(scene, camera);
+					requestAnimationFrame(loop);
+					texture.needsUpdate = true;
+				})();
+			}
+			
+			var offset = 256;	//256は回路図平面の１辺の長さの半分。原点が中心になっているため補正する
+			var min, max, lines, nodeSpheres, matrices;
+			var maxText = document.getElementById("max");
+			var minText = document.getElementById("min");
+			//高さによって色を変えるシェーダー（<head>内参照）
+			var uniforms = { u_zRange: { type: "f", value: 0 } };
+			var mat = new THREE.ShaderMaterial({
+				vertexShader: document.getElementById('vshader').textContent,
+				fragmentShader: document.getElementById('fshader').textContent,
+				uniforms: uniforms
+			});
+			//透明マテリアル
+			var mat2 = new THREE.MeshBasicMaterial({transparent: true, opacity: 0})
+
+			function setNodePotential(nodes, nodePotential){
+				min = max = nodePotential[0];
+				for(var i = 0; i < nodes.length; i++) {
+					nodes[i].potential = nodePotential[i];
+					if(nodePotential[i] < min) {
+						min = nodePotential[i];	//電位の最小値を記録する
+					} else if(nodePotential[i] > max) {
+						max = nodePotential[i];	//電位の最大値を記録する
+					}
+				}
+				var range;
+				//最大・最小のうち絶対値が大きい方から0までの幅をシェーダーに渡す
+				if(max > -min) {
+					uniforms.u_zRange.value = max * voltageScale;
+					range = max;
+				} else {
+					uniforms.u_zRange.value = -min * voltageScale;
+					range = -min;
+				}
+				//色と電位の対応を表示
+				maxText.innerHTML = (Math.round(range * 100) / 100).toString() + "V";
+				minText.innerHTML = (-Math.round(range * 100) / 100).toString() + "V";
+			}
+
+			function create3DModels(elements){
+				circuit3D = new THREE.Group();
+				scene.add(circuit3D);
+				var lineGeom = new THREE.Geometry();
+				nodeSpheres = new THREE.Group();
+				scene.add(nodeSpheres);
+				for(var n = 0; n < usingNodes.length; n++) {
+					//回路図から電位の高さまで伸びる破線を描く
+					lineGeom.vertices[n * 2] = new THREE.Vector3(usingNodes[n].x - offset, -usingNodes[n].y + offset, usingNodes[n].potential * voltageScale);
+					lineGeom.vertices[n * 2 + 1] = new THREE.Vector3(usingNodes[n].x - offset, -usingNodes[n].y + offset, plane.position.z);
+					//節点のところに球を配置
+					var s = new THREE.Mesh( new THREE.SphereGeometry(5), mat);
+					s.geometry.applyMatrix(new THREE.Matrix4().makeTranslation(usingNodes[n].x - offset, -usingNodes[n].y + offset, usingNodes[n].potential * voltageScale));
+					nodeSpheres.add(s);
+				}
+				lineGeom.verticesNeedUpdate = true;
+				lines = new THREE.LineSegments(lineGeom, new THREE.LineDashedMaterial({color: 0x0000CC, dashSize: 2, gapSize: 2}));
+				lines.computeLineDistances();
+				scene.add(lines);
+				for(var i = 0; i < elements.length; i++) {
+					var e = elements[i];
+					var e3d = new CircuitElement3D(e, [mat, mat2], 5);
+					circuit3D.add(e3d);
+					e3d.rotation.z = -e.angle;
+					e3d.position.set(e.element.x - offset, -e.element.y + offset, 0);
+				}
+			}
+
+			var originalSphereGeometry = new THREE.SphereGeometry(5);
+			var translationMat = new THREE.Matrix4();
+			var signOfCharge = "plus";
+			function update3DModels(elements) {
+				for(var n = 0; n < usingNodes.length; n++) {
+					lines.geometry.vertices[n * 2].set(usingNodes[n].x - offset, -usingNodes[n].y + offset, usingNodes[n].potential * voltageScale);
+					lines.geometry.vertices[n * 2 + 1].set(usingNodes[n].x - offset, -usingNodes[n].y + offset, plane.position.z);
+					for(var v = 0; v < nodeSpheres.children[n].geometry.vertices.length; v++) {
+						nodeSpheres.children[n].geometry.vertices[v].copy(originalSphereGeometry.vertices[v]);
+					}
+					nodeSpheres.children[n].geometry.applyMatrix(
+						translationMat.makeTranslation(usingNodes[n].x - offset, -usingNodes[n].y + offset, usingNodes[n].potential * voltageScale)
+					);
+					nodeSpheres.children[n].geometry.verticesNeedUpdate = true;
+				}
+				lines.computeLineDistances();
+				lines.geometry.lineDistancesNeedUpdate = true;
+				lines.geometry.verticesNeedUpdate = true;
+				
+				for(var i = 0; i < elements.length; i++) {
+					circuit3D.children[i].updateMesh(elements[i].connectedNode1.potential * voltageScale, elements[i].connectedNode2.potential * voltageScale);
+					circuit3D.children[i].updateCharge(signOfCharge, isplaying);
+				}
+			}
+
+			class CircuitElement3D extends THREE.Mesh {
+				constructor(element, material, r) {
+					const n1 = element.connectedNode1;
+					const n2 = element.connectedNode2;
+					const geometry = new THREE.CylinderGeometry(r, r, element.length, 8, 7, true);
+					super(geometry, material);
+					this.element = element;
+					this.r = r;
+					const length = element.length;
+					const p1 = this.p1 = new THREE.Vector3(-length / 2, 0, n1.potential * voltageScale);
+					const p2 = this.p2 = new THREE.Vector3(length / 2, 0, n2.potential * voltageScale);
+					
+					let pc1, pc2;
+					if(element.type  == "conductor" || element.type == "resistor" || element.type == "switch") {
+						pc1 = this.pc1 = new THREE.Vector3(-24, 0, this.p1.z);
+						pc2 = this.pc2 = new THREE.Vector3(24, 0, this.p2.z);
+						this.vc2DLength = 50;
+					} else if(element.type == "capacitor") {
+						pc1 = this.pc1 = new THREE.Vector3(-12.5, 0, this.p1.z);
+						pc2 = this.pc2 = new THREE.Vector3(12.5, 0, this.p2.z);
+						this.vc2DLength = 25;
+					} else {
+						pc1 = this.pc1 = new THREE.Vector3(0, 0, this.p1.z);
+						pc2 = this.pc2 = new THREE.Vector3(0, 0, this.p2.z);
+						this.vc2DLength = 0;
+					}
+					this.cg = [new THREE.CircleGeometry(r), new THREE.CircleGeometry(r), new THREE.CircleGeometry(r)];
+					this.tempVertices = [new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3()];
+					this.matrices = [new THREE.Matrix4().makeRotationY(-Math.PI / 2), new THREE.Matrix4(), new THREE.Matrix4()];
+					this.translate = [new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3(), 
+						new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3()];
+					
+					//電荷
+					this.charges = [];
+					this.cp = new THREE.Vector3();
+					let len = 12.5;
+					for(let i = 0; len + 12.5 < length; i++){
+						len = i * 25 + 12.5;
+						this.charges[i] = new THREE.Sprite(new THREE.SpriteMaterial({depthTest: false}));
+						this.charges[i].scale.set(10, 10, 1);
+						this.add(this.charges[i]);
+					}
+					//コンデンサに蓄えられる電荷
+					if(element.type == "capacitor") {
+						this.capacitorCharges_plus = [];
+						this.capacitorCharges_minus = [];
+						for(let j = 0; j < 20; j++) {
+							this.capacitorCharges_plus[j] = new THREE.Sprite(new THREE.SpriteMaterial({depthTest: false}));
+							this.capacitorCharges_plus[j].scale.set(10, 10, 1);
+							this.capacitorCharges_plus[j].visible = false;
+							this.add(this.capacitorCharges_plus[j]);
+							this.capacitorCharges_minus[j] = new THREE.Sprite(new THREE.SpriteMaterial({depthTest: false}));
+							this.capacitorCharges_minus[j].scale.set(10, 10, 1);
+							this.add(this.capacitorCharges_minus[j]);
+							this.capacitorCharges_minus[j].visible = false;
+						}
+					}
+					
+					let plusTexture, minusTexture, self = this;
+					plusTexture = new THREE.TextureLoader().load(plusImg.src, function(){
+						minusTexture = new THREE.TextureLoader().load(minusImg.src, function(){
+							self.plusTexture = plusTexture;
+							self.minusTexture = minusTexture;
+							self.setChargeType(signOfCharge);
+							if(element.type == "capacitor") {
+								for(let i = 0; i < 20; i++) {
+									self.capacitorCharges_plus[i].material.map = plusTexture;
+									self.capacitorCharges_minus[i].material.map = minusTexture;
+								}
+							}
+						});
+					});
+					this.updateMesh(this.p1.z, this.p2.z);
+					this.cm = 12.5;
+					this.updateCharge(signOfCharge, isplaying);
+				}
+
+				updateMesh(z1, z2) {
+					//OFFになっているスイッチ、またはコンデンサの場合、中央部を透明（materialIndex = 1）にする
+					if((this.element.type == "switch" && this.element.switchState == "OFF") || this.element.type == "capacitor") {
+						for(let i = 0; i < this.geometry.faces.length; i++) {
+							let mod = i % 14;
+							if(mod > 1 && mod < 12)	{
+								this.geometry.faces[i].materialIndex = 1;
+							} else {
+								this.geometry.faces[i].materialIndex = 0;
+							}
+						}
+						this.renderOrder = 1;
+					} else {
+						for(let i = 0; i < this.geometry.faces.length; i++) {
+							this.geometry.faces[i].materialIndex = 0;
+						}
+						this.renderOrder = 0;
+					}
+					this.geometry.elementsNeedUpdate = true;
+
+					const p1 = this.p1;
+					const p2 = this.p2;
+					const pc1 = this.pc1;
+					const pc2 = this.pc2;
+					const cg = this.cg;
+					const matrices = this.matrices;
+					const translate = this.translate;
+					const r = this.r;
+					p1.z = pc1.z = z1;
+					p2.z = pc2.z = z2;
+					let theta = Math.atan2(pc2.z - pc1.z, pc2.x - pc1.x);
+					matrices[1].makeRotationY(-Math.PI / 2 - theta);
+					matrices[2].makeRotationY(-Math.PI / 2 - theta / 2);
+					translate[0].set(p1.x, 0, p1.z);
+					if(theta > 0) {
+						translate[1].set(pc1.x - r * Math.tan(theta / 2),                           0,  pc1.z);
+						translate[2].set(pc1.x - r * (Math.tan(theta / 2) - Math.sin(theta / 2)),   0,  pc1.z + (r - r * Math.cos(theta / 2)));
+						translate[3].set(pc1.x + r * Math.tan(theta / 2) * Math.cos(theta),         0,  pc1.z + r * Math.tan(theta / 2) * Math.sin(theta));
+						translate[4].set(pc2.x - r * Math.tan(theta / 2) * Math.cos(theta),         0,  pc2.z - r * Math.tan(theta / 2) * Math.sin(theta));
+						translate[5].set(pc2.x + r * (Math.tan(theta / 2) - Math.sin(theta / 2)),   0,  pc2.z - (r - r * Math.cos(theta / 2)));
+						translate[6].set(pc2.x + r * Math.tan(theta / 2), 0, pc2.z);
+					} else {
+						translate[1].set(pc1.x + r * Math.tan(theta / 2), 0, pc1.z);
+						translate[2].set(pc1.x + r * (Math.tan(theta / 2) - Math.sin(theta / 2)),   0,  pc1.z - (r - r * Math.cos(theta / 2)));
+						translate[3].set(pc1.x - r * Math.tan(theta / 2) * Math.cos(theta),         0,  pc1.z - r * Math.tan(theta / 2) * Math.sin(theta));
+						translate[4].set(pc2.x + r * Math.tan(theta / 2) * Math.cos(theta),         0,  pc2.z + r * Math.tan(theta / 2) * Math.sin(theta));
+						translate[5].set(pc2.x - r * (Math.tan(theta / 2) - Math.sin(theta / 2)),   0,  pc2.z + (r - r * Math.cos(theta / 2)));
+						translate[6].set(pc2.x - r * Math.tan(theta / 2),                           0,  pc2.z);
+					}
+					translate[7].set(p2.x, 0, p2.z);
+					for(let i = 0; i < cg[0].vertices.length; i++) {
+						//90°に直立した円
+						this.tempVertices[0].copy(cg[0].vertices[i]);
+						this.tempVertices[0].applyMatrix4(matrices[0]);
+						//θだけ傾いた円
+						this.tempVertices[1].copy(cg[1].vertices[i]);
+						this.tempVertices[1].applyMatrix4(matrices[1]);
+						//θ/2だけ傾いた円
+						this.tempVertices[2].copy(cg[2].vertices[i]);
+						this.tempVertices[2].applyMatrix4(matrices[2]);
+						//各円を平行移動させた形に添って頂点を移動させることで、円柱を曲げる
+						if(i > 0 && i < 9) {
+							this.geometry.vertices[i - 1].copy(this.tempVertices[0]).add(translate[0]);
+							this.geometry.vertices[i + 7].copy(this.tempVertices[0]).add(translate[1]);
+							this.geometry.vertices[i + 15].copy(this.tempVertices[2]).add(translate[2]);
+							this.geometry.vertices[i + 23].copy(this.tempVertices[1]).add(translate[3]);
+							this.geometry.vertices[i + 31].copy(this.tempVertices[1]).add(translate[4]);
+							this.geometry.vertices[i + 39].copy(this.tempVertices[2]).add(translate[5]);
+							this.geometry.vertices[i + 47].copy(this.tempVertices[0]).add(translate[6]);
+							this.geometry.vertices[i + 55].copy(this.tempVertices[0]).add(translate[7]);
+						}
+					}
+					this.geometry.verticesNeedUpdate = true;
+				}
+
+				updateCharge(sign, isplaying) {
+					//符号が＋なら電流と同じ向きに、－なら電流と逆向きに移動させる
+					if(isplaying) {
+						if(sign == "minus") {
+							this.cm -= this.element.current * currentScale * dt;	//I=qnvsよりv=I/qns ⇒ Δx=vΔt=IΔt/qns=IΔt*currentScale　(currentScale=1/qnsとした)
+						} else {
+							this.cm += this.element.current * currentScale * dt;
+						}
+					}
+					//もとの位置を中心とした移動量。-12.5～12.5の間をスクロールさせ続けることで動いているように見せる
+					while(this.cm > 12.5) {
+						this.cm -= 25;
+					}
+					while(this.cm < -12.5) {
+						this.cm += 25;
+					}
+					let cm = this.cm;
+					const p1 = this.p1;
+					const p2 = this.p2;
+					const pc1 = this.pc1;
+					const pc2 = this.pc2;
+					const cp = this.cp = this.cp.subVectors(pc1, p1);
+					const cpLength = cp.length();
+					let len;
+					for(let i = 0; i < this.charges.length; i++){
+						let c = this.charges[i];
+						len = i * 25 + 12.5 + cm;
+						if(Math.abs(len) > 0.01) {
+							cp.setLength(len);
+						} else {
+							cp.setLength(0.01);//長さが0になると以降のsetLengthが効かなくなるため
+						}
+						//電位の線に沿って、上から見て等間隔になるよう配置する
+						if(len < cpLength) {	//p1とpc1の間
+							c.position.set(p1.x + cp.x, p1.y + cp.y, p1.z + cp.z + 10);
+						} else if(len < cpLength + this.vc2DLength ) {	//pc1とpc2の間
+							if((this.element.type == "switch" && this.element.switchState == "OFF") || this.element.type == "capacitor") {
+								c.visible = false;
+								continue;
+							}
+							let theta = Math.atan2(pc2.z - pc1.z, pc2.x - pc1.x);
+							let d = len - cpLength;
+							c.position.set(p1.x + cp.x, p1.y + cp.y, p1.z + cp.z + d * Math.tan(theta) + 10);
+						} else {
+							c.position.set(p1.x + cp.x, p1.y + cp.y, p2.z + cp.z + 10);
+						}
+						//電荷が素子からはみ出るとき、表示しない
+						c.visible = (len < this.element.length);
+					}
+					if(this.element.type == "capacitor") {
+						let numCharges = Math.floor(Math.min(Math.abs(this.element.q) * currentScale / 25000000 + 0.5, 20));
+						for(let i = 0; i < 20; i++) {
+							if(i < numCharges) {
+								this.capacitorCharges_plus[i].visible = this.capacitorCharges_minus[i].visible = true;
+								this.capacitorCharges_plus[i].position.y = this.capacitorCharges_minus[i].position.y = 25 / (numCharges + 1) * (i + 1) - 12.5;
+								if(this.element.q > 0) {
+									this.capacitorCharges_plus[i].position.x = -12.5;
+									this.capacitorCharges_minus[i].position.x = 12.5;
+								} else {
+									this.capacitorCharges_plus[i].position.x = 12.5;
+									this.capacitorCharges_minus[i].position.x = -12.5;
+								}
+							} else {
+								this.capacitorCharges_plus[i].visible = this.capacitorCharges_minus[i].visible = false;
+							}
+						}
+					}
+				}
+
+				setChargeType(chargeType) {
+					let texture;
+					if(chargeType == "plus") {
+						texture = this.plusTexture;
+					} else if(chargeType == "minus") {
+						texture = this.minusTexture;
+					}
+					let charges = this.charges;
+					for(let i = 0; i < charges.length; i++) {
+						charges[i].material.map = texture;
+					}
+					texture.needsUpdate = true;
+				}
+			}
+		</script>
+	</body>
+</html>
